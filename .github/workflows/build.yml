@@ -1,0 +1,58 @@
+name: Build Patched zsign (Windows)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows (x64) with ASN1-plist patch
+    runs-on: windows-2022
+    steps:
+      - name: checkout patch repo
+        uses: actions/checkout@v4
+        with:
+          path: patch
+
+      - name: fetch upstream zsign v1.1.1 source
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/zhlynn/zsign/archive/refs/tags/v1.1.1.zip" -OutFile upstream.zip
+          Expand-Archive -Path upstream.zip -DestinationPath .
+          Rename-Item -Path "zsign-1.1.1" -NewName "src_root"
+
+      - name: apply patch (overwrite with our modified files)
+        shell: pwsh
+        run: |
+          Copy-Item -Path "patch/src/common/json.h" -Destination "src_root/src/common/json.h" -Force
+          Copy-Item -Path "patch/src/common/json.cpp" -Destination "src_root/src/common/json.cpp" -Force
+
+      - name: setup msbuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: build
+        shell: pwsh
+        working-directory: src_root
+        run: |
+          msbuild build/windows/vs2022/zsign.sln /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: smoke test
+        shell: pwsh
+        working-directory: src_root
+        run: build/windows/vs2022/x64/Release/zsign.exe -v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zsign-windows-x64-patched
+          path: src_root/build/windows/vs2022/x64/Release/zsign.exe
+
+      - name: publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zsign-patched
+          name: zsign-patched
+          files: src_root/build/windows/vs2022/x64/Release/zsign.exe
+          token: ${{ secrets.GITHUB_TOKEN }}
